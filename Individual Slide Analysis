@@ -1,0 +1,147 @@
+---
+title: "IHC_Analysis_YourPatientID"
+author: "Chinmay"
+date: '2023-09-04'
+output: html_document
+---
+
+## Note: Adjust the file names in the code that contain the QuPath exported data to your file names
+
+## Knit Setup
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+
+```{r package loading}
+
+# load each of the necessary packages needed in the pipeline
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(janitor)
+library(lubridate)
+
+```
+
+## Data Import
+
+```{r import data}
+
+## import excel sheets containing the data
+
+# show names of excel sheets in the specific file
+excel_sheets("Your/Slide/Data/File.xlsx")
+
+# make the patient id number the end part of the df_list variable (df_list_patientidnumber)
+# make a list of dataframes based on the excel table obtained from each excel sheet
+# remove control sheets by specifying in "sheet = x parameter" to exclude negative controls from ROC curves in later analysis
+df_list_YourPatientID <- lapply(excel_sheets("Your/Slide/Data/File.xlsx"), function(x)
+read_excel("Your/Slide/Data/File.xlsx", sheet = x)
+)
+
+# change names of elements of the dataframe list based on the names of the excel sheets
+sheet_names <- excel_sheets("Your/Slide/Data/File.xlsx")
+
+names(df_list_YourPatientID) <- sheet_names
+
+# if there is a negative control remove it from the dataframe list by assigning it "NULL". Ex: df_list_YourControlPatientID$ControlPatientColumn <- NULL
+# NOTE: This is meant to to exclude negative controls from ROC curves in later analysis
+
+```
+
+## Data Cleaning and Organization
+
+```{r data cleaning}
+
+## clean and organize the data from the tables
+
+# remove extraneous columns of each dataframe in the dataframe list AND rename columns of each dataframe in the dataframe list to make them code friendly
+for (i in seq_along(df_list_YourPatientID)) {
+  
+  df_list_YourPatientID[[i]] <- df_list_YourPatientID[[i]][, !(colnames(df_list_YourPatientID[[i]]) %in% c("Object ID", "Name", "Parent", "ROI", "Centroid X µm", "Centroid Y µm"))]
+  
+  colnames(df_list_YourPatientID[[i]]) <- c("slide_id", "num_detections", "num_positive_thresholdnumber1", "num_positive_thresholdnumber2", "num_positive_thresholdnumber3", "num_negative", "percent_positive", "h_score", "allred_proportion", "allred intensity", "allred score", "selection_area", "selection_perimeter")
+  
+}
+
+# creates a new column in each updated dataframe in the dataframe list of the number of positive detections by subtracting the negative detections from the total detections
+for (j in df_list_YourPatientID){
+  
+  j$num_positive <- (j$num_detections - j$num_negative)
+  
+}
+
+# print average percent positive cells for each slide
+for (k in seq_along(df_list_YourPatientID)) {
+  
+  print(paste0("Patient slide number ", as.character(names(df_list_YourPatientID)[[k]]), " has an average of ", as.character(mean(c(df_list_YourPatientID[[k]]$percent_positive))), " % MIP-1a positive cells"))
+  
+}
+
+## print average percent positive cells for each patient
+
+# specify column for calculating the mean
+target_column <- "percent_positive"
+
+# create a vector to store the means specific to the patient
+means_YourPatientID <- numeric(length(df_list_YourPatientID))
+
+# loop through each data frame in the list for the specific patient and calculate the mean of the target column
+for (l in 1:length(df_list_YourPatientID)) {
+  means_YourPatientID[l] <- mean(df_list_YourPatientID[[l]][[target_column]], na.rm = TRUE)
+}
+
+# calculate the overall average of the means across the dataframes for the specific patient
+overall_average_YourPatientID <- mean(means_YourPatientID)
+
+# print the result
+print(paste0("Percent MIP-1a positive cells for patient YourPatientID is: ", as.character(overall_average_YourPatientID)))
+
+
+```
+
+## Initial Graphs and Preliminary Analysis
+
+```{r preliminary analysis}
+
+## create initial graphs (ex: simple bar graphs and scatter plots based on data from one patient)
+
+# scatter plot of H-Score against percent MIP-1a positive cells
+for (m in seq_along(df_list_YourPatientID)) {
+
+# make plot  
+ IHC_plot <- ggplot(df_list_YourPatientID[[m]], aes(x = percent_positive, y = h_score, color = slide_id)) +
+      geom_point(size = 2) +
+      labs(y = "H-Score",
+           x = "Percent Of MIP-1a Positive Cells",
+           title = "Comparison of H-Score against percent of MIP-1a positive cells")
+
+# print the scatter plots in the console for each slide for the patient
+ print(IHC_plot)
+ 
+}
+
+
+# make bar plot of percent MIP-1a positive cells for each slide for the patient
+for (n in seq_along(df_list_YourPatientID)) {
+
+# make plot  
+ IHC_plot2 <- ggplot(df_list_YourPatientID[[n]], aes(x = slide_id, y = percent_positive)) +
+      geom_bar(stat = "identity", width = 0.5, fill = "blue") +
+      ylim(0,100) +
+      labs(y = "Percent Of MIP-1a Positive Cells",
+           x = "Selected Detection Area",
+           title = "Comparison of percent of MIP-1a positive cells across the detected sections") + 
+           theme(axis.text.x = element_text(angle=90, vjust=0.5))
+
+# print the bar plots in the console for each slide for the patient
+ print(IHC_plot2)
+ 
+}
+
+```
+
