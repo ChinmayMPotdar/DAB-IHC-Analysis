@@ -6,6 +6,7 @@ output: html_document
 ---
 
 ## Note: Adjust the file names in the code that contain the QuPath exported data to your file names
+## Note: Code involving string pattern recognition may need to be adjusted to your variable and parameter names
 
 ## Knit Setup
 
