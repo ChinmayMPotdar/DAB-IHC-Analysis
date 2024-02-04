@@ -1,0 +1,481 @@
+---
+title: "IHC analysis pipeline"
+author: "Chinmay"
+date: '2023-07-16'
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+## Note: Code involving string pattern recognition may need to be adjusted to your variable and parameter names
+## Note: Adjust file paths and object names accordingly
+
+## Knit Setup
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+
+```{r package Loading}
+
+# load each of the necessary packages needed in the pipeline
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(janitor)
+library(lubridate)
+
+```
+
+## Initial Graphs and Preliminary Combined Analysis
+
+```{r preliminary combined analysis}
+
+## make list of dataframe lists that were used to keep track of the slides for each patient (that way there is a master list containing the data on the slides of each patient)
+
+# list to store dataframe list objects
+master_list <- list()
+
+# partial string to match object names
+partial_string <- "df_list_"
+
+# NOTE: df_list_YourPatientID7 has only 1 negative control slide so it should be removed from the environment to prevent misleading results from the ROC analysis (it should not be counted as a remission or active patient since it is only used to check if the DAB staining worked)
+rm(df_list_YourPatientID7, envir = .GlobalEnv)
+rm(overall_average_YourPatientID7, envir = .GlobalEnv)
+
+# get a list of objects in the global environment
+all_objects <- ls()
+
+# iterate through all_objects and select those that match the partial string
+for (obj_name in all_objects) {
+  if (grepl(partial_string, obj_name)) {
+    master_list[[obj_name]] <- get(obj_name)
+  }
+}
+
+# print the object names in the master list
+print(paste0("The list object of dataframes for each patient: ", names(master_list)))
+
+# set the partial string to match the required object names
+partial_string2 <- "overall_average_"
+
+# make a list to contain the average percent positive cells for each patient from the average percent positive cell objects created in each individual patient analysis
+avg_list <- list()
+
+# find the average percent positive cells objects in the global environment based on a partial string match
+# fill the empty average percent positive cells list with the values of these objects
+for (avg_value in all_objects) {
+  if (grepl(partial_string2, avg_value)) {
+    avg_list[[avg_value]] <- get(avg_value)
+  }
+}
+
+## create dataframe with patient slide IDs, patient IDs, disease state, percent positive cells, patient fecal calprotein, and patient WBC count
+
+# make lists to use as columns for the master dataframe (exclude negative controls)
+slide_id_list <- list("YourSlideID1", "YourSlideID2", "YourSlideID3", "YourSlideID4", "YourSlideID5", "YourSlideID6")
+
+patient_id_list <- list("YourPatientID1", "YourPatientID2", "YourPatientID3", "YourPatientID4", "YourPatientID5", "YourPatientID6")
+
+disease_state_list <- list("IBD_unclassified_active", "UC_active", "CD_remission", "UC_active", "UC_remission", "UC_remission")
+
+fcal_list <- list("1792", "391", "35.2", "NA", "NA", "NA")
+
+wbc_list <- list("9.1", "12.6", "10.7", "7.8", "6", "7.6")
+
+# make dataframe using the created lists as columns to get the general structure (NOTE: nrow should be the number of patients so that a dataframe with the required number of rows is created for data input)
+master_df <- data.frame(matrix(c(slide_id_list, patient_id_list, disease_state_list, avg_list, fcal_list, wbc_list), nrow = 6))
+
+# set dataframe column names and view the dataframe
+colnames(master_df) <- c("patient_slide_id", "patient_id", "disease_state", "percent_CCL3_positive", "fcal", "wbc_count")
+
+master_df
+
+# convert dataframe list columns to normal columns using mutate and unlist functions
+master_df <- master_df %>%
+  mutate(across(c(1:6), unlist))
+
+# make White Blood Cell Count a numeric value for use in plot making
+master_df$wbc_count <- as.numeric(master_df$wbc_count)
+
+## create bar graphs and scatter plots based on master dataframe
+
+# create bar graph of patient ID on X-axis and percent CCL3 positive cells on the Y-axis
+overall_positive <- ggplot(master_df, aes(x = patient_id, y = percent_CCL3_positive)) +
+                    geom_bar(stat = "identity", width = 0.5, fill = "blue") +
+                    ylim(0,100) +
+                    labs(y = "Percent Of MIP-1a Positive Cells",
+                         x = "Patient ID",
+                         title = "Comparison of percent of MIP-1a positive cells across the patient IDs") +
+                    theme_classic() +
+                    geom_text(aes(label = paste0(percent_CCL3_positive, " %"), vjust = -1)) +
+                    geom_text(aes(label = str_wrap(str_replace_all(disease_state, "_", " "), width = 0.6), vjust = -2, color = disease_state), show.legend = FALSE) +
+                    theme(axis.text.x = element_text(angle=90, vjust=0.5)) +
+                    theme(axis.text.x = element_text(color = "black", face = "bold"),
+                          axis.text.y = element_text(color = "black", face = "bold")) +
+                    theme(axis.title.x = element_text(face = "bold"),
+                          axis.title.y = element_text(face = "bold")) +
+                    theme(axis.title.x = element_text(margin = margin(t = 20)),
+                          axis.title.y = element_text(margin = margin(r = 20)))
+
+# print plot in code window
+overall_positive
+
+# save image of plot
+ggsave("overall_percent_positive_barplot.png", plot = overall_positive, width = 8, height = 5)
+
+# create scatter plot of clinical WBC count against percent CCL3 positive cells colored by disease state
+ggplot(master_df, aes(x = wbc_count, y = percent_CCL3_positive)) +
+    geom_point(aes(col = disease_state)) +
+    coord_cartesian(expand = FALSE, xlim = c(0, 30), ylim = c(0, 100)) +
+    labs(y = "Percent Of MIP-1a Positive Cells",
+           x = "White Blood Cell Count",
+           title = "Comparison of white blood cell count against percent of MIP-1a positive cells") +
+    theme(axis.text.x = element_text(color = "black", face = "bold"),
+          axis.text.y = element_text(color = "black", face = "bold")) +
+    theme(axis.title.x = element_text(face = "bold"),
+          axis.title.y = element_text(face = "bold")) +
+    theme(axis.title.x = element_text(margin = margin(t = 20)),
+          axis.title.y = element_text(margin = margin(r = 20)))
+  
+```
+
+## Advanced Analysis and Graphs
+
+```{r appending informative columns to combined data table}
+
+# look at first few lines of dataframe
+head(master_df)
+
+# check data format of each column
+str(master_df)
+
+# make a new categorical column with factor levels of Active or Inactive disease based on a partial string match of active or remission from the "disease_state" column
+master_df[["IBD_status"]] <- as.factor(ifelse(grepl("active", master_df$disease_state) == TRUE, "Active_Disease", "Inactive_Disease"))
+
+## make a large expanded dataframe containing individual data from the photos of each slide across the patients for more detailed analysis
+
+# extract the dataframes embedded within the lists and "rowbind" them together creating a larger dataframe
+expanded_master_list <- master_list %>%
+  lapply(function(sublist){
+  
+  combined_sublist <- do.call(rbind, sublist)
+  
+  return(combined_sublist)
+  
+  }) %>%
+  do.call(rbind, .)
+
+# make rownames default to 1,2,3,...
+rownames(expanded_master_list) <- NULL
+
+# make slide_id names shorter to improve readability and adherence to coding conventions
+# replace each string with the first 11 characters (or 10 if the 11th is a space as some slides have slightly varying lengths of ID numbers)
+expanded_master_list$slide_id <- lapply(expanded_master_list$slide_id, function(s) {
+  if (nchar(s) >= 11 && substr(s, 11, 11) == " ") {
+    return(substring(s, 1, 10))
+  } else {
+    return(substring(s, 1, 11))
+  }
+})
+
+# the "slide_id" column acquired a list characteristic, so we simply unlist it
+expanded_master_list <- expanded_master_list %>%
+  mutate(slide_id = unlist(slide_id))
+
+# add a disease_state column to the expanded dataframe based on the patient that corresponds to the slide id
+decision_vector <- c("18-17821", "18-13105", "18-4207")
+
+for(decision in seq_along(expanded_master_list[["slide_id"]])){
+  
+  if(any(grep(paste(decision_vector, collapse = "|"), expanded_master_list[["slide_id"]][[decision]])) == TRUE){
+    
+    expanded_master_list[["disease_state"]][[decision]] <- "IBD_Active"
+    
+  } else {
+    
+    expanded_master_list[["disease_state"]][[decision]] <- "IBD_Remission"
+    
+  }
+  
+}
+
+# the "disease_state" column acquired a list characteristic, so we simply unlist it
+expanded_master_list <- expanded_master_list %>%
+  mutate(disease_state = unlist(disease_state))
+
+# set the disease state values as factors
+expanded_master_list$disease_state <- as.factor(expanded_master_list$disease_state)
+
+```
+
+```{r preliminary combined analysis with individual data points}
+
+## keep values from the "df_list_patientidnumber" object intact instead of averaging values for each patient
+
+# the "master_df" dataframe has more specific disease state values than the "expanded_master_list" dataframe so the "for" loop is meant to update the disease state values in the "expanded_master_list" dataframe with the specific disease states
+
+# the expanded_master_list dataframe is valuable to retain as it contains all the datapoints for each patient rather than the condensed average values for each patient
+
+# create a new dataframe with a modified "slide_id" column that removes the last 3 characters from the "expanded_master_list" dataframe and replaces the hyphens with underscores to decrease complication of the below "for" loop and to adhere to coding conventions
+expanded_master_list_mod <- expanded_master_list %>%
+  mutate(slide_id = gsub("-", "_", substr(slide_id, 1, nchar(slide_id) - 3)))
+
+# alter the "disease_state" column from a factor type to a character type so that the "disease_state" column from "expanded_master_list_mod" can be compatibly updated with the "disease_state" column from the "master_df"
+expanded_master_list_mod$disease_state <- as.character(expanded_master_list_mod$disease_state)
+
+for (x in seq_along(expanded_master_list_mod$slide_id)) {
+  
+  # if the slide IDs from the expanded df (has all the datapoints) matches the slide IDs from the condensed average master df (has the average data points) then execute the if statement
+  if (expanded_master_list_mod$slide_id[[x]] %in% master_df$patient_slide_id == "TRUE") {
+    
+    # subsets the slide_id column based on its queue in the for loop for the expanded_master_list_mod dataframe. This value is then put into an intermediate variable to make the code easier to read in subsequent steps.
+    intermediate_value <- expanded_master_list_mod$slide_id[[x]]
+    
+    # the intermediate_value variable is used to subset the specific row of the master_df that will also contain the relevant disease state
+    # the value in found in the "disease_state" column then replaces the less specific disease state value from the expanded_master_list dataframe
+    expanded_master_list_mod$disease_state[[x]] <- master_df[master_df$patient_slide_id == intermediate_value, ]$disease_state
+    
+  }
+}
+
+expanded_master_list_mod
+
+# add patient IDs to the expanded_master_list_mod dataframe using similar logic as the above for loop except it is adding a new column instead of modifying an existing column
+for (patient in seq_along(expanded_master_list_mod$slide_id)) {
+  
+  if (expanded_master_list_mod$slide_id[[patient]] %in% master_df$patient_slide_id == "TRUE") {
+    
+    intermediate_value2 <- expanded_master_list_mod$slide_id[[patient]]
+    
+    expanded_master_list_mod$patient_id[patient] <- master_df[master_df$patient_slide_id == intermediate_value2, ]$patient_id
+    
+  }
+}
+
+expanded_master_list_mod
+
+# place the more specific slide IDs back into the new expanded_master_list_mod dataframe (since they were shortened prior to the "for" loop) and additionally retain the underscores
+expanded_master_list_mod$slide_id <- expanded_master_list$slide_id
+expanded_master_list_mod$slide_id <- gsub("-", "_", expanded_master_list_mod$slide_id)
+
+## create boxplot with error bars and individual data points labelled by patient ID, slide ID, and photo name
+
+## significance of differences present in data
+# Kruskal test used to test if there are any significant differences between any of the groups (does not indicate which specific differences are significant from this test)
+# NOTE: If Kruskal test does not show any indication of significance do not run the pairwise Wilcox test
+kt <- kruskal.test(percent_positive ~ slide_id, data = expanded_master_list_mod)
+
+# show p value of Kruskal test
+kt$p.value
+
+# perform pairwise Wilcox test to obtain p-values for slide comparisons
+pt <- pairwise.wilcox.test(expanded_master_list_mod$percent_positive, g = expanded_master_list_mod$slide_id, p.adjust.method = "BH", exact = FALSE)
+
+# perform pairwise Wilcox test to obtain p-values for disease state comparisons
+pt2 <- pairwise.wilcox.test(expanded_master_list_mod$percent_positive, g = expanded_master_list_mod$disease_state, p.adjust.method = "BH", exact = FALSE)
+
+# show p values matrix of the pairwise wilcox test for slide comparisons
+pt$p.value
+
+pvalue_table <- pt$p.value
+
+# show p values matrix of the pairwise Wilcox test for disease state comparisons
+pt2$p.value
+
+pvalue_table2 <- pt2$p.value
+
+# export csv file of the p-value table of comparison of percent positive cells between patient slide IDs
+write.csv(data.frame(pvalue_table), "Your/File/Path/IHC_pvalue_table.csv", quote = TRUE, row.names = TRUE)
+
+# export csv file of the p-value table of comparison of percent positive cells between patient disease states (more informative)
+write.csv(data.frame(pvalue_table2), "Your/File/Path/IHC_pvalue_table2.csv", quote = TRUE, row.names = TRUE)
+
+# create box plot of patient ID on X-axis and percent CCL3 positive cells on Y-axis
+boxplot_IHCgraph <- ggplot(expanded_master_list_mod, aes(x = paste(patient_id, "\n", slide_id), y = percent_positive, color = slide_id, group = slide_id)) +
+                    geom_boxplot() +
+                    geom_jitter(width = 0.2) +
+                    ylim(0,150) +
+                    labs(y = "Percent Of MIP-1a Positive Cells",
+                         x = "Patient Slide ID",
+                         title = "Comparison of percent of MIP-1a positive cells across the patient slide IDs") +
+                    theme_classic() +
+                    theme(axis.text.x = element_text(angle=60, vjust=0.5)) +
+                    theme(axis.text.x = element_text(color = "black", face = "bold"),
+                          axis.text.y = element_text(color = "black", face = "bold")) +
+                    theme(axis.title.x = element_text(face = "bold"),
+                          axis.title.y = element_text(face = "bold")) +
+                    theme(axis.title.x = element_text(margin = margin(t = 20)),
+                          axis.title.y = element_text(margin = margin(r = 20))) +
+                    theme(legend.position = "none") +
+                    theme(axis.text.x = element_text(lineheight = 1.5))
+
+# print plot in code window
+boxplot_IHCgraph
+
+# save image of plot
+ggsave("individual_IHC_boxplot.png", plot = boxplot_IHCgraph, width = 8, height = 5)
+
+## create box plot organized by % MIP-1a cells on the Y-axis and histology scores on the X-axis after adding histology scores to data table
+
+# add histology scores to the dataframe in accordance with the histology scores associated with the different slide IDs
+histology_score_list <- c()
+
+for (histology_score in seq_along(expanded_master_list_mod$slide_id)){
+  
+  if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID1 A1"){
+    
+    histology_score_list = c(histology_score_list, "severe")
+    
+  } else if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID1 B1") {
+    
+    histology_score_list = c(histology_score_list, "severe")
+    
+  } else if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID2 B1") {
+    
+    histology_score_list = c(histology_score_list, "moderate")
+    
+  } else if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID3 B1") {
+    
+    histology_score_list = c(histology_score_list, "mild")
+    
+  } else if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID4 A1") {
+    
+    histology_score_list = c(histology_score_list, "mild")
+    
+  } else if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID5 P1") {
+    
+    histology_score_list = c(histology_score_list, "moderate")
+    
+  } else if (expanded_master_list_mod$slide_id[[histology_score]] == "YourSlideID6 F1") {
+    
+    histology_score_list = c(histology_score_list, "mild")
+    
+  }
+  
+}
+
+expanded_master_list_mod$histology_assessment <- histology_score_list
+
+# create box plot of histology score assessment on X-axis and percent CCL3 positive cells on Y-axis
+boxplot_IHCgraph_wscore <- ggplot(expanded_master_list_mod, aes(x = paste(histology_assessment), y = percent_positive, color = disease_state, group = slide_id)) +
+                    geom_boxplot(position = position_dodge2(width = 1, preserve = "single")) +
+                    geom_jitter(position = position_jitterdodge(0.1)) +
+                    ylim(0,100) +
+                    labs(y = "Percent Of MIP-1a Positive Cells",
+                         x = "Histology Inflammation Score",
+                         color = "disease state") +
+                    theme_classic() +
+                    # geom_text(aes(label = paste0(percent_positive, " %"), vjust = -1)) +
+                    # geom_text(aes(label = str_wrap(str_replace_all(disease_state, "_", " "), width = 0.6), vjust = -2, color = disease_state), show.legend = FALSE) +
+                    theme(axis.text.x = element_text(angle = 60, vjust = 0.5)) +
+                    theme(axis.text.x = element_text(size = 12, color = "black", face = "bold"),
+                          axis.text.y = element_text(size = 12, color = "black", face = "bold")) +
+                    theme(axis.title.x = element_text(size = 14, face = "bold"),
+                          axis.title.y = element_text(size = 14, face = "bold")) +
+                    theme(axis.title.x = element_text(margin = margin(t = 20)),
+                          axis.title.y = element_text(margin = margin(r = 20))) +
+                    theme(axis.text.x = element_text(lineheight = 1.5))+
+                    theme(legend.title = element_text(size = 12, face = "bold"),
+                          legend.text = element_text(size = 11))
+
+# print plot in code window
+boxplot_IHCgraph_wscore
+
+# save image of plot
+ggsave("individual_IHC_boxplot_wscore.png", plot = boxplot_IHCgraph_wscore, width = 10, height = 7)
+
+## create box plot of patient ID on X-axis and percent CCL3 positive cells on Y-axis including negative controls
+
+# add negative control values to current plot (rbind the negative control columns to the current "expanded_master_list_mod" dataframe)
+# "YourControlSlideID1" (patient ID number "YourPatientID7") and "YourControlSlideID2" (patient ID number "YourPatientID5") are negative controls
+
+## data import for "YourControlSlideID1" (patient ID number "YourControlPatientID7")
+
+# make the patient ID number the terminal part of the "df_list" variable name ("df_list_patientidnumber")
+# make a list of dataframes based on the excel table obtained from each excel sheet
+df_list_YourPatientID7_control <- lapply(excel_sheets("Your/File/Path/YourPatientID7.xlsx"), function(x)
+read_excel("Your/File/Path/YourPatientID7.xlsx", sheet = x)
+)
+
+# change names of elements of the dataframe list based on the names of the excel sheets
+sheet_names_control1 <- excel_sheets("Your/File/Path/YourPatientID7.xlsx")
+
+names(df_list_YourPatientID7_control) <- sheet_names_control1
+
+# remove extraneous columns of each dataframe in the dataframe list AND rename columns of each dataframe in the dataframe list to make them code friendly
+for (i in seq_along(df_list_YourPatientID7_control)) {
+  
+  df_list_YourPatientID7_control[[i]] <- df_list_YourPatientID7_control[[i]][, !(colnames(df_list_YourPatientID7_control[[i]]) %in% c("Object ID", "Name", "Parent", "ROI", "Centroid X µm", "Centroid Y µm"))]
+  
+  colnames(df_list_YourPatientID7_control[[i]]) <- c("slide_id", "num_detections", "num_positive_thresholdnumber1", "num_positive_thresholdnumber2", "num_positive_thresholdnumber3", "num_negative", "percent_positive", "h_score", "allred_proportion", "allred intensity", "allred score", "selection_area", "selection_perimeter")
+  
+}
+
+# make repeating strings for the slide ID, disease state, and patient ID for each patient to match the format of the "expanded_master_list_mod" dataframe
+df_list_YourPatientID7_control[[1]]$slide_id <- rep("17_1198 A1", times = 10)
+df_list_YourPatientID7_control[[1]]$disease_state <- rep("UC_remission", times = 10)
+df_list_YourPatientID7_control[[1]]$patient_id <- rep("YourPatientID7", times = 10)
+df_list_YourPatientID7_control[[1]]$histology_assessment <- rep("mild", times = 10)
+
+## data import for "YourSlideID5 A1" (patient ID number "YourPatientID5")
+
+# make the patient id number the terminal part of the "df_list" variable ("df_list_patientidnumber")
+# make a list of dataframes based on the excel table obtained from each excel sheet
+df_list_YourPatientID5_control <- list(read_excel("Your/File/Path/YourPatientID5.xlsx", sheet = "YourControlSlideID2"))
+
+# change names of elements of the dataframe list based on the names of the excel sheets
+sheet_names_control2 <- "YourControlSlideID2"
+
+names(df_list_YourPatientID5_control) <- sheet_names_control2
+
+# remove extraneous columns of each dataframe in the dataframe list AND rename columns of each dataframe in the dataframe list to make them code friendly
+for (i in seq_along(df_list_YourPatientID5_control)) {
+  
+  df_list_YourPatientID5_control[[i]] <- df_list_YourPatientID5_control[[i]][, !(colnames(df_list_YourPatientID5_control[[i]]) %in% c("Object ID", "Name", "Parent", "ROI", "Centroid X µm", "Centroid Y µm"))]
+  
+  colnames(df_list_YourPatientID5_control[[i]]) <- c("slide_id", "num_detections", "num_positive_thresholdnumber1", "num_positive_thresholdnumber2", "num_positive_thresholdnumber3", "num_negative", "percent_positive", "h_score", "allred_proportion", "allred intensity", "allred score", "selection_area", "selection_perimeter")
+  
+}
+
+# make repeating strings for the slide ID, disease state, and patient ID for each patient to match the format of the "expanded_master_list_mod" dataframe
+df_list_YourPatientID5_control[[1]]$slide_id <- rep("YourSlideID5 A1", times = 10)
+df_list_YourPatientID5_control[[1]]$disease_state <- rep("UC_remission", times = 10)
+df_list_YourPatientID5_control[[1]]$patient_id <- rep("YourPatientID5", times = 10)
+df_list_YourPatientID5_control[[1]]$histology_assessment <- rep("moderate", times = 10)
+
+# add the negative controls to the "expanded_master_list_mod" dataframe
+expanded_master_list_control<- rbind(expanded_master_list_mod, df_list_YourPatientID5_control[[1]], df_list_YourPatientID7_control[[1]])
+
+# create box plot of patient ID on X-axis and percent CCL3 positive cells on the Y-axis including negative controls
+boxplot_IHCgraph_control <- ggplot(expanded_master_list_control, aes(x = paste(patient_id, "\n", slide_id), y = percent_positive, color = slide_id, group = slide_id)) +
+                    geom_boxplot() +
+                    geom_jitter(width = 0.2) +
+                    ylim(0,150) +
+                    labs(y = "Percent Of MIP-1a Positive Cells",
+                         x = "Patient Slide ID",
+                         title = "Comparison of percent of MIP-1a positive cells across the patient slide IDs") +
+                    theme_classic() +
+                    # geom_text(aes(label = paste0(percent_positive, " %"), vjust = -1)) +
+                    # geom_text(aes(label = str_wrap(str_replace_all(disease_state, "_", " "), width = 0.6), vjust = -2, color = disease_state), show.legend = FALSE) +
+                    theme(axis.text.x = element_text(angle=60, vjust=0.5)) +
+                    theme(axis.text.x = element_text(color = "black", face = "bold"),
+                          axis.text.y = element_text(color = "black", face = "bold")) +
+                    theme(axis.title.x = element_text(face = "bold"),
+                          axis.title.y = element_text(face = "bold")) +
+                    theme(axis.title.x = element_text(margin = margin(t = 20)),
+                          axis.title.y = element_text(margin = margin(r = 20))) +
+                    theme(legend.position = "none") +
+                    theme(axis.text.x = element_text(lineheight = 1.5))
+
+# print plot in code window
+boxplot_IHCgraph_control
+
+# save image of plot
+ggsave("individual_IHC_boxplot_withcontrol.png", plot = boxplot_IHCgraph_control, width = 10, height = 7)
+
+```
